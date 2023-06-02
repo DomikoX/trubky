@@ -1,0 +1,199 @@
+<!doctype html>
+<html class="no-js" lang="">
+
+<head>
+    <meta charset="utf-8">
+    <title>Trubky over video </title>
+    <meta name="description" content="">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script async src="https://docs.opencv.org/master/opencv.js" onload="onOpenCvReady();"
+            type="text/javascript"></script>
+</head>
+
+<body>
+<div id="app">
+    <div>
+
+        <select v-model="selectedCamera" @change="changeCamera">
+            <option v-for="camera in cameras" :key="camera.deviceId" :value="camera.deviceId">
+                {{ camera.label || 'Camera ' + (cameras.indexOf(camera) + 1) }}
+            </option>
+        </select>
+
+        <div>
+            Grayscale Threshold: {{ grayscaleThreshold }}
+            <input type="range" v-model="grayscaleThreshold" min="0" max="255">
+        </div>
+        <div>
+            White Pixel Percentage Threshold: {{ whitePixelThreshold }}%
+            <input type="range" v-model="whitePixelThreshold" min="0" max="100">
+        </div>
+
+        <div>White Pixels: {{ whitePixels }}</div>
+        <div>Black Pixels: {{ blackPixels }}</div>
+        <div :style="resultStyle">Result: {{ result ? 'OK' : 'NOK' }}</div>
+    </div>
+    <div>
+        <video ref="video" width="640" height="480"></video>
+        <canvas ref="canvas" :width="canvasWidth" :height="canvasHeight"></canvas>
+
+    </div>
+</div>
+
+</div>
+<script>
+    function onOpenCvReady() {
+        // OpenCV.js library is ready to use
+        // You can now proceed with your code
+    }
+    const {createApp} = Vue
+    createApp({
+        data() {
+            return {
+                originalImageData: null,
+                grayscaleThreshold: 95,
+                whitePixelThreshold: 70,
+                whitePixels: 0,
+                blackPixels: 0,
+                result: false,
+                selectedCamera: null,
+                cameras: [],
+                videoWidth: 640,
+                videoHeight: 480,
+            };
+        },
+        computed: {
+            canvasWidth() {
+                return this.videoWidth;
+            },
+            canvasHeight() {
+                return this.videoHeight;
+            },
+            resultStyle() {
+                return {
+                    fontSize: '24px',
+                    padding: '10px',
+                    color: 'white',
+                    backgroundColor: this.result ? '#2E7D32' : '#D32F2F',
+                };
+            },
+        },
+        mounted() {
+            this.getCameras()
+                .then(() => {
+                    if (this.cameras.length > 0) {
+                        this.selectedCamera = this.cameras[0].deviceId;
+                        this.startVideo();
+                    }
+                })
+                .catch((error) => {
+                    console.error('Error accessing cameras:', error);
+                });
+        },
+
+        methods: {
+            getCameras() {
+                return navigator.mediaDevices.enumerateDevices()
+                    .then((devices) => {
+                        this.cameras = devices.filter((device) => device.kind === 'videoinput');
+                    });
+            },
+            changeCamera() {
+                this.stopVideo();
+                this.startVideo();
+            },startVideo() {
+                navigator.mediaDevices.getUserMedia({ video: { deviceId: this.selectedCamera } })
+                    .then((stream) => {
+                        const video = this.$refs.video;
+                        video.srcObject = stream;
+                        // Call the applyThreshold method every time a new video frame is available
+                        video.addEventListener('play', () => {
+                            this.applyThreshold();
+                        });
+                        video.play();
+                    })
+                    .catch((error) => {
+                        console.error('Error accessing camera:', error);
+                    });
+            },
+            stopVideo() {
+                const video = this.$refs.video;
+                const stream = video.srcObject;
+                if (stream) {
+                    const tracks = stream.getTracks();
+                    tracks.forEach((track) => {
+                        track.stop();
+                    });
+                    video.srcObject = null;
+                }
+            },
+            applyThreshold() {
+                const thresholdValue = parseInt(this.grayscaleThreshold, 10);
+                const maxBinaryValue = 255;
+
+                const video = this.$refs.video;
+                const canvas = this.$refs.canvas;
+                const ctx = canvas.getContext('2d');
+
+                ctx.drawImage(video, 0, 0, this.videoWidth, this.videoHeight);
+
+                const imageData = ctx.getImageData(0, 0, this.videoWidth, this.videoHeight);
+                const src = cv.matFromImageData(imageData);
+                const gray = new cv.Mat();
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+                cv.threshold(gray, gray, thresholdValue, maxBinaryValue, cv.THRESH_BINARY);
+
+                ctx.clearRect(0, 0, this.videoWidth, this.videoHeight);
+                cv.imshow(canvas, gray);
+
+                src.delete();
+                gray.delete();
+
+                // Update pixel counts and result
+                this.countPixels();
+
+                // Call the applyThreshold method recursively for the next video frame
+                requestAnimationFrame(() => {
+                    this.applyThreshold();
+                });
+            },
+
+            countPixels() {
+                const canvas = this.$refs.canvas;
+                const ctx = canvas.getContext('2d');
+                const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                let whiteCount = 0;
+                let blackCount = 0;
+
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+
+                    // Check if the pixel is white or black
+                    if (r === 255 && g === 255 && b === 255) {
+                        whiteCount++;
+                    } else if (r === 0 && g === 0 && b === 0) {
+                        blackCount++;
+                    }
+                }
+
+                this.whitePixels = whiteCount;
+                this.blackPixels = blackCount;
+                this.updateResult();
+            },
+            updateResult() {
+                const threshold = parseInt(this.whitePixelThreshold, 10);
+                const whitePercentage = this.whitePixels / (this.whitePixels + this.blackPixels);
+                this.result = whitePercentage >= threshold /100 ;
+            },
+        }
+    }).mount('#app')
+</script>
+
+
+</body>
+
+</html>
