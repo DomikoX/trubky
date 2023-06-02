@@ -54,7 +54,7 @@
             return {
                 originalImageData: null,
                 grayscaleThreshold: 95,
-                whitePixelThreshold: 70,
+                whitePixelThreshold: 60,
                 whitePixels: 0,
                 blackPixels: 0,
                 result: false,
@@ -203,8 +203,8 @@
 
                         if (skipPixel) {
                             data[index] = 255;   // Red
-                            data[index + 1] = 0; // Green
-                            data[index + 2] = 0; // Blue
+                            data[index + 1] = 213; // Green
+                            data[index + 2] = 128; // Blue
                             continue;
                         }
 
